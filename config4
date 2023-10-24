@@ -1,0 +1,7 @@
+peer_id=LHY5IT1J
+host=127.0.0.1
+port=3004
+locale=en_IL.utf8
+peer_table
+SM643224=127.0.0.1:3001
+D9I7S4VY=127.0.0.1:3004
