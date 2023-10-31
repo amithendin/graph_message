@@ -6,13 +6,13 @@
 int load_config(Config *conf,char *file_path) {
     FILE *fp;
     char *line, *key, *val, *tmp;
-    short peer_table_mode = 0;
+    short peer_table_mode, has_interface;
     ssize_t len, line_len, i, num_keys;
 
     (*conf).peer_table = new_table();
 
-    len = 0;
-    num_keys = 0;
+    num_keys = len = 0;
+    peer_table_mode = has_interface = 0;
     line = NULL;
     fp = fopen(file_path, "r");
 
@@ -20,7 +20,7 @@ int load_config(Config *conf,char *file_path) {
         if (!gen_config(conf, file_path)) {
             return 0;
         }
-        num_keys = 3;
+        num_keys = 4;
 
     }else {
 
@@ -36,7 +36,7 @@ int load_config(Config *conf,char *file_path) {
                 val[strlen(val)-1] = '\0';
 
             if (peer_table_mode == 1) {
-                printf("INSERT PEER TABLE %s %s\n", key, val);
+                //printf("INSERT PEER TABLE %s %s\n", key, val);
                 table_insert((*conf).peer_table,
                              buffer_from_str(key, 0), buffer_from_str(val, -1));
 
@@ -55,6 +55,10 @@ int load_config(Config *conf,char *file_path) {
                     strcpy((*conf).locale, val);
                     num_keys++;
 
+                } else if (strncmp(key, "interface_port",14) == 0) {
+                    (*conf).interface_port = atoi(val);
+                    has_interface = 1;
+
                 } else if (strncmp(key, "peer_table",10) == 0) {
 
                     peer_table_mode = 1;
@@ -72,6 +76,10 @@ int load_config(Config *conf,char *file_path) {
         if (!gen_config(conf, file_path)) {
             return 0;
         }
+    }
+
+    if (!has_interface) {
+        conf->interface_port = 0;
     }
 
     (*conf).ip_address = malloc(BUFFER_SIZE);
@@ -136,6 +144,9 @@ int gen_config(Config *conf,char *file_path) {
         strcpy((*conf).locale, buff);
     }
     fprintf (fp, "locale=%s\n", (*conf).locale);
+
+    (*conf).interface_port = 8080;
+    fprintf (fp, "interface_port=%d\n", (*conf).interface_port);
 
     fclose(fp);
 

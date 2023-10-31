@@ -15,13 +15,63 @@
 #include "message.h"
 #include "config.h"
 
-List *outbox, *inbox;
+#define CMD_DISCOVER 1
+#define CMD_SEND 2
+#define CMD_CONNECT 3
+#define CMD_FETCH_INBOX 4
+
+typedef struct {
+    char cmd;
+    char peer_id[PEER_ID_SIZE];
+    unsigned long long content_len;
+    char *content;
+} Command;
+
+typedef struct {
+    Time time;
+    char from_peer[PEER_ID_SIZE];
+    unsigned long long content_len;
+    char *content;
+} ClientResponse;
+
+int client_socket;
+List *outbox, *inbox, *personal_inbox;
 Table *message_table;
-pthread_mutex_t outbox_mutex, inbox_mutex, message_table_mutex;
+pthread_mutex_t outbox_mutex, inbox_mutex, message_table_mutex, personal_inbox_mutex;
 Config conf;
 
 void server();
 void client();
+
+Command deserialize_command(char *buff, size_t buff_len) {
+    Command cmd;
+
+    cmd.cmd = buff[0];
+    buff_len -= 1;
+    memcpy(cmd.peer_id, buff+1, PEER_ID_SIZE);
+    buff_len -= PEER_ID_SIZE;
+    cmd.content_len = buff_len;
+    if (buff_len > 0) {
+        cmd.content = malloc(buff_len);
+        memcpy(cmd.content, buff + 1 + PEER_ID_SIZE, buff_len);
+    }
+
+    return cmd;
+}
+
+Buffer serialize_response(ClientResponse *resp) {
+    Buffer buf;
+
+    buf.len = sizeof(Time) + PEER_ID_SIZE + sizeof(unsigned long long) + resp->content_len;
+    buf.data = malloc(buf.len);
+
+    memcpy(buf.data, &resp->time, sizeof(Time));
+    memcpy(buf.data+sizeof(Time), resp->from_peer, PEER_ID_SIZE);
+    memcpy(buf.data+sizeof(Time)+PEER_ID_SIZE, &resp->content_len, sizeof(unsigned long long ));
+    memcpy(buf.data+sizeof(Time)+PEER_ID_SIZE+sizeof(unsigned long long ), resp->content, resp->content_len);
+
+    return buf;
+}
 
 void enqueue_message(pthread_mutex_t *queue_mutex, List *queue, Message *msg) {
     pthread_mutex_lock(queue_mutex);
@@ -38,7 +88,6 @@ Message* dequeue_message(pthread_mutex_t *queue_mutex, List *queue) {
 
     return msg;
 }
-
 
 int net_client(char *addr, int port, Message *msg) {
     int sock;
@@ -183,6 +232,7 @@ void server() {
     Buffer *table_buf;
     Buffer sgn, *lookup, new_buf;
     char *time_str;
+    ClientResponse *resp;
 
     msg = dequeue_message(&inbox_mutex, inbox);
 
@@ -221,10 +271,22 @@ void server() {
 
                 if (strncmp(msg->to_peer, conf.peer_id, PEER_ID_SIZE) == 0) {
 
-                    time_str = miliseconds_to_datestr(msg->time);
-                    printf("%.*s> [%s] \"%s\"\n", PEER_ID_SIZE, msg->from_peer, time_str, (char *) msg->content.data);
-                    free(time_str);
+                    resp = malloc(sizeof(ClientResponse));
+                    resp->time = msg->time;
+                    memcpy(resp->from_peer, msg->from_peer, PEER_ID_SIZE);
+                    resp->content_len = msg->content.len;
+                    resp->content = malloc(resp->content_len);
+                    memcpy(resp->content, msg->content.data, resp->content_len);
 
+                    if (conf.interface_port) {
+                        pthread_mutex_lock(&personal_inbox_mutex);
+                        list_push(personal_inbox, resp);
+                        pthread_mutex_unlock(&personal_inbox_mutex);
+                    }else {
+                        time_str = miliseconds_to_datestr(msg->time);
+                        printf("%.*s> [%s] \"%s\"\n", PEER_ID_SIZE, msg->from_peer, time_str, (char *) msg->content.data);
+                        free(time_str);
+                    }
                 } else {
 
                     it = table_iter_new(conf.peer_table);
@@ -251,117 +313,158 @@ void server() {
     }
 }
 
-void *interface(void *vargp) {
-    int mode, i;
-    char cmd[BUFFER_SIZE], peer_id[PEER_ID_SIZE+1];
+void execute_command(Command cmd) {
+    char peer_id[PEER_ID_SIZE+1];
     Message *msg, *discover_msg;
-    Buffer tmp, *table_buf, peer_id_buf, peer_addr_buf;
+    Buffer tmp, *table_buf;
     TableIter *it;
 
-    mode = 0;
-    peer_id_buf.len = PEER_ID_SIZE+1;
-    peer_id_buf.data = peer_id;
+    if (cmd.cmd == CMD_CONNECT) {
+        table_buf = serialize_table(conf.peer_table);
+        table_insert(conf.peer_table, buffer_from_str(cmd.peer_id, 0), buffer_from_str(cmd.content, 1));
 
-    while (strcmp(cmd, "exit") != 0) {
-        printf("@>");
-        if (mode == 1) {
-            printf("recipient:");
-        }else if (mode == 2) {
-            printf("message:");
-        }else if (mode == 3) {
-            printf("peer id:");
-        }else if (mode == 4) {
-            printf("peer address:");
-        }
-        fgets(cmd, BUFFER_SIZE, stdin);
-        cmd[strlen(cmd) - 1] = 0;
+        discover_msg = new_message(table_buf, "discover", peer_id);
+        free_buffer(table_buf);
 
-        switch (mode) {
-            case 1:
-                msg = malloc(sizeof(Message));
-                strcpy(msg->from_peer, conf.peer_id);
-                memset(msg->through_peer, 0, PEER_ID_SIZE);
-                strcpy(msg->to_peer, cmd);
-                mode = 2;
-                break;
+        enqueue_message(&outbox_mutex, outbox, discover_msg);
+        client();
 
-            case 2:
-                msg->content.data = malloc(sizeof(char) * strlen(cmd) + 1);
-                strcpy(msg->content.data, cmd);
-                msg->content.len = strlen(cmd) + 1;
-                msg->time = now_milliseconds();
+    }else if (cmd.cmd == CMD_DISCOVER) {
+        tmp = buffer_from_str("0", 1);
 
-                enqueue_message(&outbox_mutex, outbox, msg);
-                client();
-                mode = 0;
-                break;
+        it = table_iter_new(conf.peer_table);
 
-            case 3:
-                strcpy(peer_id, cmd);
-                mode = 4;
-                break;
-
-            case 4:
-                peer_addr_buf.len = strlen(cmd);
-                peer_addr_buf.data = malloc(peer_addr_buf.len);
-                strcpy(peer_addr_buf.data, cmd);
-                table_buf = serialize_table(conf.peer_table);
-                table_insert(conf.peer_table, peer_id_buf, peer_addr_buf);
-                discover_msg = new_message(table_buf, "discover", peer_id);
-                free_buffer(table_buf);
-
+        while (table_iter_next(it)) {
+            if (strncmp((char*)it->curr->key.data, conf.peer_id, PEER_ID_SIZE) != 0) {
+                discover_msg = new_message(&tmp, conf.peer_id, "discover");
+                memcpy(discover_msg->through_peer, it->curr->key.data, PEER_ID_SIZE);
                 enqueue_message(&outbox_mutex, outbox, discover_msg);
-                client();
-
-                mode = 0;
-                break;
-
-            default:
-                if (strcmp(cmd, "send") == 0) {
-                    mode = 1;
-
-                }else if (strcmp(cmd, "discover") == 0) {
-                    tmp = buffer_from_str("0", 1);
-
-                    it = table_iter_new(conf.peer_table);
-
-                    while (table_iter_next(it)) {
-                        if (strncmp((char*)it->curr->key.data, conf.peer_id, PEER_ID_SIZE) != 0) {
-                            discover_msg = new_message(&tmp, conf.peer_id, "discover");
-                            memcpy(discover_msg->through_peer, it->curr->key.data, PEER_ID_SIZE);
-                            enqueue_message(&outbox_mutex, outbox, discover_msg);
-                        }
-                    }
-                    client();
-
-                    free(tmp.data);
-                    free(it);
-                    it = NULL;
-
-                } else if (strcmp(cmd, "connect") == 0) {
-                    mode = 3;
-
-                } else if (strcmp(cmd, "exit") == 0) {
-                    printf("goodbye\n");
-
-                } else if (strlen(cmd) > 0) {
-                    printf("unrecognized command\n");
-                }
-
-                break;
+            }
         }
+        client();
+
+        free(tmp.data);
+        free(it);
+        it = NULL;
+
+    }else if (cmd.cmd == CMD_SEND) {
+        tmp.len = cmd.content_len;
+        tmp.data = cmd.content;
+        msg = new_message(&tmp, conf.peer_id, cmd.peer_id);
+        enqueue_message(&outbox_mutex, outbox, msg);
+        client();
     }
+
 }
 
-void *engine(void *vargp) {
+void *remote_interface(void *varpg) {
+    int server_socket;
+    struct sockaddr_in server_addr, client_addr;
+    socklen_t client_addr_len = sizeof(client_addr);
+    char buff[BUFFER_SIZE], *total_buff, *tmp;
+    size_t total_buff_len, total_buff_offset, buff_len;
+    Command cmd;
+    ClientResponse *resp;
+    Buffer serialized_resp;
 
-    while(1) {
-        client();
-        server();
-        sleep(1);
+    // Create socket
+    server_socket = socket(AF_INET, SOCK_STREAM, 0);
+
+    // Initialize the server address structure
+    server_addr.sin_family = AF_INET;
+    server_addr.sin_port = htons(conf.interface_port);
+    server_addr.sin_addr.s_addr = INADDR_ANY;
+
+    // Bind the socket to the server address
+    bind(server_socket, (struct sockaddr *)&server_addr, sizeof(server_addr));
+
+    // Listen for incoming connections
+    listen(server_socket, 5);
+
+    while (1) {
+        // Accept a connection
+        client_socket = accept(server_socket, (struct sockaddr *)&client_addr, &client_addr_len);
+
+        while (1) {
+            // Receive data from the client
+            total_buff_len = total_buff_offset = 0;
+
+            while ((buff_len = recv(client_socket, buff, BUFFER_SIZE, 0)) > 0) {
+                if (total_buff_len == 0) {
+                    memcpy(&total_buff_len, buff, sizeof(size_t));
+                    total_buff = malloc(total_buff_len);
+                    if (buff_len > sizeof(size_t)) {
+                        buff_len -= sizeof(size_t);
+                        memcpy(total_buff, buff + sizeof(size_t), buff_len);
+                        total_buff_offset += buff_len;
+                    }
+                }else {
+                    memcpy(total_buff+total_buff_offset, buff, buff_len);
+                    total_buff_offset += buff_len;
+                }
+
+                if (total_buff_offset >= total_buff_len - sizeof(size_t)) {
+                    cmd = deserialize_command(total_buff, total_buff_offset);
+                    free(total_buff);
+                    total_buff_len = total_buff_offset = 0;
+
+                    execute_command(cmd);
+
+                    if (cmd.content_len > 0) {
+                        free(cmd.content);
+                        cmd.content_len = 0;
+                    }
+
+                    tmp = "command executed";
+                    resp = malloc(sizeof(ClientResponse));
+                    resp->time = now_milliseconds();
+                    memcpy(resp->from_peer, "PEERCLNT", PEER_ID_SIZE);
+                    resp->content_len = strlen(tmp);
+                    resp->content = tmp;
+                    serialized_resp = serialize_response(resp);
+                    free(resp);
+
+                    total_buff_len = serialized_resp.len+ sizeof(size_t);
+                    total_buff = malloc(total_buff_len);
+                    memcpy(total_buff, &total_buff_len, sizeof(size_t));
+                    memcpy(total_buff + sizeof(size_t), serialized_resp.data, total_buff_len - sizeof(size_t));
+
+                    send(client_socket, total_buff, total_buff_len, 0);
+                    free(total_buff);
+                    total_buff_len = total_buff_offset = 0;
+                }
+            }
+
+            do {
+                pthread_mutex_lock(&personal_inbox_mutex);
+                resp = (ClientResponse *)list_poplast(personal_inbox);
+                pthread_mutex_unlock(&personal_inbox_mutex);
+
+                if (resp != NULL) {
+                    serialized_resp = serialize_response(resp);
+                    free(resp->content);
+                    free(resp);
+
+                    total_buff_len = serialized_resp.len + sizeof(size_t);
+                    total_buff = malloc(total_buff_len);
+                    memcpy(total_buff, &total_buff_len, sizeof(size_t));
+                    memcpy(total_buff + sizeof(size_t), serialized_resp.data, total_buff_len - sizeof(size_t));
+                    free(serialized_resp.data);
+
+                    send(client_socket, total_buff, total_buff_len, 0);
+                    free(total_buff);
+                    total_buff_len = total_buff_offset = 0;
+                }
+            }while(resp != NULL);
+
+            sleep(1);
+        }
+
+        close(client_socket);
     }
+    close(server_socket);
 
-    return NULL;
+    return 0;
 }
 
 int main(int argc, char *argv[]) {
@@ -379,17 +482,26 @@ int main(int argc, char *argv[]) {
     pthread_mutex_init(&outbox_mutex, NULL);
     pthread_mutex_init(&inbox_mutex, NULL);
     pthread_mutex_init(&message_table_mutex, NULL);
+    pthread_mutex_init(&personal_inbox_mutex, NULL);
     outbox = new_list();
     inbox = new_list();
     message_table = new_table();
+    personal_inbox = new_list();
 
     printf("PEER ID: %s\nIP: %s\nVERSION: 0.0.1\n", conf.peer_id, conf.ip_address);
 
     pthread_create(&server_tid, NULL, net_server, NULL);
     //pthread_create(&engine_tid, NULL, engine, NULL);
-    pthread_create(&interface_tid, NULL, interface, NULL);
+    if (conf.interface_port) {
+        printf("INTERFACE IP: 127.0.0.1:%d\n", conf.interface_port);
+        pthread_create(&interface_tid, NULL, remote_interface, NULL);
+        pthread_join(interface_tid, NULL);
 
-    pthread_join(interface_tid, NULL);
+    }else {
+
+        pthread_join(server_tid, NULL);
+    }
+
 
     return 0;
 }

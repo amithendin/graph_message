@@ -13,9 +13,8 @@
 #include "table.h"
 
 typedef struct {
-    char locale[50];
-    char peer_id[PEER_ID_SIZE+1], *ip_address, host[BUFFER_SIZE];
-    int port;
+    char peer_id[PEER_ID_SIZE+1], *ip_address, host[BUFFER_SIZE], locale[50];
+    int port, interface_port;
     Table *peer_table;
 } Config;
 
