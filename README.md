@@ -19,7 +19,7 @@ The main purpose of the client written here is to provide a working example of t
 
 ## TODO
 - Finish documentation
-- 
+  
 ## Further development
 I will need to add a way for 2 peers to encrypt thier messages so that "middle peers" wont be able to view the message content.
 I will also need a way to verify the senders PEER ID so that peers cannot spoof each other's PEER ID.
