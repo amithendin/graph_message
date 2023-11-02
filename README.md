@@ -7,18 +7,20 @@ Notice the network must be a connected graph for this to work there for two diff
 
 ## To use
 Run `./distmsg ./config` in terminal. you will now enter a configuration creation setup or you will enter the CLI depending on if you have the file `config` created at the path you supplied to the program or not.
-Once in the program, you can do the following operations.
-- Connect to other peers on the network by typing `connect` and the supplying the PEER ID and IP as prompted, notice this will also send your PEER ID and IP to the peer you connected to, this will add you to thier peer table and them to yours and so you can send messages directly to them without going through the network.
-- Discover other peers without knowing thier PEER ID and IP by typing `discover`. This will request from all of the peers in your peer table their entire peer table and merge it with yours while overwriting conflicts. Notice that one can discover the entire network by continously running discover which will essentailly preform a breadth first search on the network bu this is not recommended since it can strain the network with a lot of traffic.
-- Send message by typing `send` and supplying the PEER ID and message you want to send. Notice not the program does not confirm the message reached it's target but rather just pushes the message through the network.
-- Exit, quit the program by typing `exit`
-  
+Now run `./client 127.0.0.1:<interface_port>` replacing interface port with the one in the config file, the default is 8080. Notice that if interface_port is not present in the config file the program will not be able 
+to communicate with any remote clients and will simply operate in headless mode while printing messages meant for it to standard out.
+Once you run the client you will be at a prompt where you can enter commands to send to the `distmsg` instance. supported commands are:
+- `connect <peer_id> <address>` Which will add the provided peer to your peer table and add your credentials to the peer's peer table.
+- `discover` Which will request the peer table from all your neighbors and merge those peer tables with yours giving the network greater connectivity.
+- `send <peer_id> <message>` Which will send a message to the provided peer over the distributed peer network.
+To exist gracefully without locking any ports type `exit` into the client prompt.
+
+The main purpose of the client written here is to provide a working example of the data communication format necessary to send commands and recieve responses from the program.
 
 ## TODO
-- Add documentation
-- Separate CLI and networking engine so that other clients can be developt for the engine independantly
-
-## In the future
+- Finish documentation
+- 
+## Further development
 I will need to add a way for 2 peers to encrypt thier messages so that "middle peers" wont be able to view the message content.
 I will also need a way to verify the senders PEER ID so that peers cannot spoof each other's PEER ID.
 

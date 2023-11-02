@@ -1,6 +1,10 @@
-//
-// Created by amit on 8/13/23.
-//
+/**
+ * Hashtable implementation with chaining
+ * Author: Amit Hendin
+ * Date: 8/13/2023
+ *
+ * A standard and simple implementaion of a hashtable data structure using chaining to resolve conflicts and with some extra features
+ */
 
 #ifndef DISTMSG_TABLE_H
 #define DISTMSG_TABLE_H
