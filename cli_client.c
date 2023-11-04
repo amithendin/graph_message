@@ -1,6 +1,12 @@
-//
-// Created by amit on 10/25/23.
-//
+/***
+ * Command line client for distributed peer to peer messaging program
+ * Author: Amit Hendin
+ * Date: 31/10/2023
+ *
+ * A small program to demonstrate how to connect to and use the peer to peer messaging program. Notice that some sturcts and constants must be syncronized in the source code between
+ * the client and the messaging program
+ */
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -11,22 +17,30 @@
 #include <pthread.h>
 
 #define BUFFER_SIZE 1024
-#define PEER_ID_SIZE 8
+#define PEER_ID_SIZE 8 /* MUST BE SYNCHRONIZED WITH main.c */
 
-#define CMD_DISCOVER 1
-#define CMD_SEND 2
-#define CMD_CONNECT 3
-#define CMD_FETCH_INBOX 4
+#define CMD_DISCOVER 1 /* MUST BE SYNCHRONIZED WITH main.c */
+#define CMD_SEND 2 /* MUST BE SYNCHRONIZED WITH main.c */
+#define CMD_CONNECT 3 /* MUST BE SYNCHRONIZED WITH main.c */
 
-typedef long long Time;
-
+typedef long long Time; /* MUST BE SYNCHRONIZED WITH main.c */
+/**
+ * MUST BE SYNCHRONIZED WITH main.c
+ *
+ * A command set to the messaging program
+ * */
 typedef struct {
-    char cmd;
+    char cmd; /* command code */
     char peer_id[PEER_ID_SIZE];
     unsigned long long content_len;
     char *content;
 } Command;
 
+/**
+ * MUST BE SYNCHRONIZED WITH main.c
+ *
+ * A response from the messaging program
+ * */
 typedef struct {
     Time time;
     char from_peer[PEER_ID_SIZE];
@@ -34,10 +48,18 @@ typedef struct {
     char *content;
 } ClientResponse;
 
+/* Global variables */
 char engine_ip[BUFFER_SIZE];
 int engine_port, client_socket;
 pthread_mutex_t print_mutex;
 
+/**
+ * Serializes a given command to a buffer of bytes
+ *
+ * @param cmd Command struct to serialize
+ * @param len A pointer to an integer in which to write the length of the resulting buffer
+ * @return Pointer to a new buffer containing the serialized command in bytes
+ */
 char* serialize_command(Command cmd, size_t *len) {
     char *buff;
 
@@ -52,7 +74,13 @@ char* serialize_command(Command cmd, size_t *len) {
 
     return buff;
 }
-
+/**
+ * Deserializes a buffer of bytes into a ClientResponse struct
+ *
+ * @param buf Buffer of bytes to deserialize from
+ * @param len The length of the buffer (buf)
+ * @return ClientResponse containing the response encoded in the given buffer
+ */
 ClientResponse *deserialize_response(char* buf, unsigned long long len) {
     ClientResponse *resp;
 
@@ -65,7 +93,12 @@ ClientResponse *deserialize_response(char* buf, unsigned long long len) {
 
     return resp;
 }
-
+/**
+ * Converts time in milliseconds to localized ISO string
+ *
+ * @param t Time in milliseconds
+ * @param buf A buffer of characters in which to put the resulting ISO string
+ */
 void miliseconds_to_datestr(Time t, char *buf) {
     time_t now;
     struct tm *timeinfo;
@@ -78,7 +111,14 @@ void miliseconds_to_datestr(Time t, char *buf) {
     strftime(buf, 30, "%Y-%m-%d_%H:%M:%S", timeinfo);
     snprintf(buf + strlen(buf), 5, ".%d", milliseconds);
 }
-
+/**
+ *
+ *
+ * @param input
+ * @param input_len
+ * @param error
+ * @return
+ */
 Command parse_command(char *input, int input_len, int *error) {
     Command cmd;
     int i;

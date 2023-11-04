@@ -1,7 +1,7 @@
 /**
  * Hashtable implementation with chaining
  * Author: Amit Hendin
- * Date: 8/13/2023
+ * Date: 13/8/2023
  *
  * A standard and simple implementation of a hashtable data structure using chaining to resolve conflicts and with some extra features
  */

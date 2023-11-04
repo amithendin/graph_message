@@ -1,6 +1,6 @@
 /**
  * Author: Amit Hendin
- * Date: 8/13/2023
+ * Date: 13/8/2023
  *
  * Implementation of list.h
  */
