@@ -137,11 +137,6 @@ Command parse_command(char *input, int input_len, int *error) {
     }else if (strncmp(input, "connect", 7) == 0) {
         cmd.cmd = CMD_CONNECT;
         i += 7;
-    }else if (strncmp(input, "fetch", 5) == 0) {
-        cmd.cmd = CMD_FETCH_INBOX;
-        cmd.content_len = 0;
-        cmd.content = NULL;
-        return cmd;
     }else {
         *error = 1;
         return cmd;
