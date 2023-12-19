@@ -66,14 +66,15 @@ char* serialize_command(Command cmd, size_t *len) {
     *len = 1 + PEER_ID_SIZE + cmd.content_len;
     buff = malloc(*len);
 
-    buff[0] = cmd.cmd;
-    memcpy(buff+1, cmd.peer_id, PEER_ID_SIZE);
+    buff[0] = cmd.cmd;/* copy command code */
+    memcpy(buff+1, cmd.peer_id, PEER_ID_SIZE);/* copy peer id */
     if (cmd.content_len > 0) {
-        memcpy(buff+1+PEER_ID_SIZE, cmd.content, cmd.content_len);
+        memcpy(buff+1+PEER_ID_SIZE, cmd.content, cmd.content_len);/* copy content of command */
     }
 
     return buff;
 }
+
 /**
  * Deserializes a buffer of bytes into a ClientResponse struct
  *
@@ -84,15 +85,16 @@ char* serialize_command(Command cmd, size_t *len) {
 ClientResponse *deserialize_response(char* buf, unsigned long long len) {
     ClientResponse *resp;
 
-    resp = malloc(sizeof(ClientResponse));
-    memcpy(&resp->time, buf, sizeof(Time));
-    memcpy(resp->from_peer, buf+sizeof(Time), PEER_ID_SIZE);
-    memcpy(&resp->content_len, buf+sizeof(Time)+PEER_ID_SIZE, sizeof(unsigned long long ));
-    resp->content = malloc(resp->content_len);
-    memcpy(resp->content, buf+sizeof(Time)+PEER_ID_SIZE+sizeof(unsigned long long), resp->content_len);
+    resp = malloc(sizeof(ClientResponse));/* allocate size for response struct*/
+    memcpy(&resp->time, buf, sizeof(Time)); /* copy timestamp */
+    memcpy(resp->from_peer, buf+sizeof(Time), PEER_ID_SIZE); /* copy from peer */
+    memcpy(&resp->content_len, buf+sizeof(Time)+PEER_ID_SIZE, sizeof(unsigned long long )); /* copy length of content of response */
+    resp->content = malloc(resp->content_len); /* allocate space for the content of the response */
+    memcpy(resp->content, buf+sizeof(Time)+PEER_ID_SIZE+sizeof(unsigned long long), resp->content_len); /* copy content of response */
 
     return resp;
 }
+
 /**
  * Converts time in milliseconds to localized ISO string
  *
@@ -104,20 +106,22 @@ void miliseconds_to_datestr(Time t, char *buf) {
     struct tm *timeinfo;
     int milliseconds;
 
-    now = t/1000;
-    milliseconds = t / 1000000000;
+    now = t/1000; /* time is in milliseconds to we divide by 10^3 to get seconds */
+    milliseconds = t / 1000000000; /* extract just the milliseconds from the previous second to the next */
     timeinfo = localtime(&now);
-
+    /* fill in the buffer */
     strftime(buf, 30, "%Y-%m-%d_%H:%M:%S", timeinfo);
     snprintf(buf + strlen(buf), 5, ".%d", milliseconds);
 }
+
 /**
+ * Parses a command from a given command line input string, if the string is not in the
+ * expected format, the given error flag will be set to 1, otherwise error will remain 0
  *
- *
- * @param input
- * @param input_len
- * @param error
- * @return
+ * @param input String from which to parse
+ * @param input_len length of said string
+ * @param error pointer to an error flag
+ * @return Command struct containing the command that was parsed from the given string
  */
 Command parse_command(char *input, int input_len, int *error) {
     Command cmd;
@@ -125,7 +129,7 @@ Command parse_command(char *input, int input_len, int *error) {
 
     i=0;
     *error = 0;
-
+    /* first check the command code from the first part of the string */
     if (strncmp(input, "send", 4) == 0) {
         cmd.cmd = CMD_SEND;
         i += 4;
@@ -137,16 +141,16 @@ Command parse_command(char *input, int input_len, int *error) {
     }else if (strncmp(input, "connect", 7) == 0) {
         cmd.cmd = CMD_CONNECT;
         i += 7;
-    }else {
+    }else { /* if command code is not recognized, turn on error flag and return */
         *error = 1;
         return cmd;
     }
     i += 1; /*for space*/
 
-    memcpy(cmd.peer_id, input+i, PEER_ID_SIZE);
+    memcpy(cmd.peer_id, input+i, PEER_ID_SIZE); /* if we didn't return from yet, then we expect further input in which case the peer id input comes next, take it from the string */
 
     i += PEER_ID_SIZE+1; /*for space*/
-
+    /* assume the command also requires content and take the rest of the string as content */
     cmd.content_len = input_len - i;
     if (cmd.content_len > 0) {
         cmd.content = malloc(cmd.content_len);
@@ -159,11 +163,16 @@ Command parse_command(char *input, int input_len, int *error) {
     return cmd;
 }
 
+/**
+ * Handles a response to a command from the distmsg program
+ *
+ * @param resp The response from the distmsg program
+ */
 void handle_resp(ClientResponse *resp) {
     char buf[BUFFER_SIZE];
 
     miliseconds_to_datestr(resp->time, buf);
-
+    /* print responses to standard out */
     pthread_mutex_lock(&print_mutex);
     printf("%.*s> (%s) %.*s\n", PEER_ID_SIZE, resp->from_peer, buf, resp->content_len, resp->content);
     pthread_mutex_unlock(&print_mutex);
